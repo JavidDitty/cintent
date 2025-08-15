@@ -1,0 +1,14 @@
+[project]
+name = "cintent"
+version = "0.1.0"
+description = "Summarize the intent of GitHub Actions workflows"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+cintent = "cintent:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
