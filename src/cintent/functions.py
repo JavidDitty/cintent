@@ -3,6 +3,7 @@ import csv
 import json
 import glob
 import os
+from pathlib import Path
 import re
 
 from pandas import DataFrame
@@ -26,64 +27,87 @@ def traverse_tree(tree: Tree) -> Generator[Node, None, None]:
             break
 
 
-def parse_functions_in_repo(root_dir: str) -> Generator[dict, None, None]:
-    PY_LANGUAGE = Language(tree_sitter_python.language())
-    parser = Parser(PY_LANGUAGE)
+def parse_functions(root_dir: str) -> Generator[dict, None, None]:
+    # Initialize the Python tree-sitter parser
+    parser = Parser(Language(tree_sitter_python.language()))
 
+    # Extract the Python files in the repository
     pattern = os.path.join(root_dir, '**', '*.py')
     paths = glob.glob(pattern, recursive=True)
+
     for path in paths:
+        # Read a Python file and parse it into a tree
         with open(path, 'rb') as file:
             source = file.read()
         tree = parser.parse(source)
+
         for node in traverse_tree(tree):
-            if node.type == 'function_definition':
-                # Get the fully qualified name of the function
-                function_name = node.child_by_field_name('name').text.decode()
-                qualified_name = [function_name]
-                parent = node.parent
-                while parent is not None:
-                    if parent.type in ('class_definition', 'function_definition'):
-                        parent_name = parent.child_by_field_name('name').text.decode()
-                        qualified_name.append(parent_name)
-                    parent = parent.parent
-                
-                relative_path = os.path.dirname(os.path.relpath(path, root_dir))
-                module_path = re.split(r'\\|/', relative_path)
-                module_path.reverse()
-                qualified_name.extend(module_path)
-                
-                qualified_name.reverse()
-                qualified_name = re.subn(r'\.+', '.', '.'.join(qualified_name))[0].strip('.')
+            # Skip nodes that are not function definitions
+            if node.type != 'function_definition':
+                continue
 
-                # Get the line number of the function
-                line_number = node.start_point.row + 1
+            # Get the fully qualified name of the function
+            fq_name = []
 
-                # Get the header of the function
-                function_parameters = node.child_by_field_name('parameters').text.decode()
-                function_return_type = node.child_by_field_name('return_type')
-                if function_return_type:
-                    function_return_type = function_return_type.text.decode()
-                    function_header = f'def {function_name}{function_parameters} -> {function_return_type}'
-                else:
-                    function_header = f'def {function_name}{function_parameters}'
-                yield {'name': function_name, 'fq_name': qualified_name, 'header': json.dumps(function_header), 'line': line_number}
+            ## Get the name of the function
+            name = node.child_by_field_name('name').text.decode()
+            fq_name.append(name)
+            
+            ## Get the name(s) of the class(es)/function(s) that the function is in
+            parent = node.parent
+            while parent is not None:
+                if parent.type in ('class_definition', 'function_definition'):
+                    parent_name = parent.child_by_field_name('name').text.decode()
+                    fq_name.append(parent_name)
+                parent = parent.parent
+            
+            ## Get the name(s) of the module(s) that the function is in
+            modules = os.path.dirname(os.path.relpath(path, root_dir))
+            modules = re.split(r'\\|/', modules)
+            modules.reverse()
+            fq_name.extend(modules)
+            
+            ## Combine the name of the function, class(es)/function(s), and module(s)
+            fq_name.reverse()
+            fq_name = '.'.join(fq_name)
+            fq_name = re.subn(r'\.+', '.', fq_name)[0].strip('.')
+
+            # Get the line number of the function
+            line = node.start_point.row + 1
+
+            # Get the header of the function
+            parameters = node.child_by_field_name('parameters').text.decode()
+            return_type = node.child_by_field_name('return_type')
+            header = f'def {name}{parameters}'
+            if return_type:
+                return_type = return_type.text.decode()
+                header = f'{header} -> {return_type}'
+            
+            # Return the function's metadata
+            yield {'name': name, 'fq_name': fq_name, 'header': json.dumps(header), 'line': line}
 
 
-def parse_functions(root_dir: str, out_path: str) -> None:
-    functions = list(parse_functions_in_repo(root_dir=root_dir))
+def to_csv(root_dir: str, out_dir: str) -> None:
+    # Parse the function metadata from the repository
+    functions = list(parse_functions(root_dir=root_dir))
     functions_df = DataFrame(functions)
+
+    # Dump the function metadata to a file
+    filename = f'{Path(root_dir).stem}.functions.csv'
+    out_path = os.path.join(out_dir, filename)
     functions_df.to_csv(out_path, index=False, quoting=csv.QUOTE_ALL)
 
 
 def parse_args() -> Namespace:
     parser = ArgumentParser(description='Parse Python functions/methods from Repositories')
     parser.add_argument('root_dir', type=os.path.abspath, help='path to the root directory of a repository')
-    parser.add_argument('-o', '--out_path', type=os.path.abspath, help='path to an output csv file')
+    parser.add_argument('-o', '--out_dir', default='out', type=os.path.abspath, help='path to an out directory')
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()
     assert os.path.isdir(args.root_dir), f'The root directory "{args.root_dir}" does not exist.'
-    parse_functions(root_dir=args.root_dir, out_path=args.out_path)
+    if not os.path.isdir(args.out_dir):
+        os.mkdir(args.out_dir)
+    to_csv(root_dir=args.root_dir, out_dir=args.out_dir)
