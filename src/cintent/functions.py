@@ -62,7 +62,8 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
                 parent = parent.parent
             
             ## Get the name(s) of the module(s) that the function is in
-            modules = os.path.dirname(os.path.relpath(path, root_dir))
+            relpath = os.path.relpath(path, root_dir)
+            modules = os.path.dirname(relpath)
             modules = re.split(r'\\|/', modules)
             modules.reverse()
             fq_name.extend(modules)
@@ -84,7 +85,7 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
                 header = f'{header} -> {return_type}'
             
             # Return the function's metadata
-            yield {'name': name, 'fq_name': fq_name, 'header': json.dumps(header), 'line': line}
+            yield {'name': name, 'fq_name': fq_name, 'header': json.dumps(header), 'path': relpath, 'line': line}
 
 
 def to_csv(root_dir: str, out_dir: str) -> None:
