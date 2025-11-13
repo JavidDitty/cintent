@@ -6,6 +6,7 @@ name = "cintent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "numpy" },
     { name = "pandas" },
     { name = "ruamel-yaml" },
     { name = "tqdm" },
@@ -15,6 +16,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "numpy", specifier = ">=2.3.4" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "ruamel-yaml", specifier = ">=0.18.14" },
     { name = "tqdm", specifier = ">=4.67.1" },

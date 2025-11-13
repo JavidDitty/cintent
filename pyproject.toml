@@ -5,6 +5,7 @@ description = "Summarize the intent of GitHub Actions workflows"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "numpy>=2.3.4",
     "pandas>=2.3.3",
     "ruamel-yaml>=0.18.14",
     "tqdm>=4.67.1",
