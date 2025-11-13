@@ -1,0 +1,1 @@
+from cintent.__main__ import main

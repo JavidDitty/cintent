@@ -4,11 +4,17 @@ version = "0.1.0"
 description = "Summarize the intent of GitHub Actions workflows"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "pandas>=2.3.3",
+    "ruamel-yaml>=0.18.14",
+    "tqdm>=4.67.1",
+    "tree-sitter>=0.25.2",
+    "tree-sitter-python>=0.25.0",
+]
 
 [project.scripts]
 cintent = "cintent:main"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.8.11,<0.9.0"]
+build-backend = "uv_build"
