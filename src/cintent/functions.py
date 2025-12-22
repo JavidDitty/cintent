@@ -29,7 +29,8 @@ def traverse_tree(tree: Tree) -> Generator[Node, None, None]:
 
 def parse_functions(root_dir: str) -> Generator[dict, None, None]:
     # Initialize the Python tree-sitter parser
-    parser = Parser(Language(tree_sitter_python.language()))
+    PY_LANGUAGE = tree_sitter_python.language()
+    parser = Parser(Language(PY_LANGUAGE))
 
     # Extract the Python files in the repository
     pattern = os.path.join(root_dir, '**', '*.py')
@@ -40,6 +41,7 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
         with open(path, 'rb') as file:
             source = file.read()
         tree = parser.parse(source)
+        module_name = Path(path).stem
 
         for node in traverse_tree(tree):
             # Skip nodes that are not function definitions
@@ -54,10 +56,17 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
             fq_name.append(name)
             
             ## Get the name(s) of the class(es)/function(s) that the function is in
+            class_name = None
+            class_docstring = None
             parent = node.parent
             while parent is not None:
                 if parent.type in ('class_definition', 'function_definition'):
                     parent_name = parent.child_by_field_name('name').text.decode()
+                    if class_name is not None and parent.type == 'class_definition':
+                        class_name = parent_name
+                        candidate = node.child_by_field_name('body').child(0)
+                        if candidate.type == 'expression_statement' and candidate.child(0).type == 'string':
+                            class_docstring = candidate.text.decode()
                     fq_name.append(parent_name)
                 parent = parent.parent
             
@@ -66,12 +75,19 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
             modules = os.path.dirname(relpath)
             modules = re.split(r'\\|/', modules)
             modules.reverse()
+            fq_name.append(module_name)
             fq_name.extend(modules)
             
             ## Combine the name of the function, class(es)/function(s), and module(s)
             fq_name.reverse()
             fq_name = '.'.join(fq_name)
             fq_name = re.subn(r'\.+', '.', fq_name)[0].strip('.')
+
+            # Get the docstring of the function (if any)
+            docstring = None
+            candidate = node.child_by_field_name('body').child(0)
+            if candidate.type == 'expression_statement' and candidate.child(0).type == 'string':
+                docstring = candidate.text.decode()
 
             # Get the line number of the function
             line = node.start_point.row + 1
@@ -85,7 +101,17 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
                 header = f'{header} -> {return_type}'
             
             # Return the function's metadata
-            yield {'name': name, 'fq_name': fq_name, 'header': json.dumps(header), 'path': relpath, 'line': line}
+            yield \
+            {
+                'name': name, 
+                'fq_name': fq_name, 
+                'header': json.dumps(header), 
+                'docstring': json.dumps(docstring) if docstring else None,
+                'class_name': class_name,
+                'class_docstring': json.dumps(class_docstring) if class_docstring else None,
+                'path': relpath, 
+                'line': line,
+            }
 
 
 def to_csv(root_dir: str, out_dir: str) -> None:

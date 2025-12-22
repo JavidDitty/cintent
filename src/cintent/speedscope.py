@@ -52,6 +52,7 @@ class Speedscope:
                             frames[frame_idx]['relpath'] = None
                         frames[frame_idx]['frame_idx'] = frame_idx
         frames_df = DataFrame(frames)[['frame_idx','name','fq_name','header','file','relpath','line','col','weight']]
+        # frames_df = frames_df[~frames_df['fq_name'].isna()]
         return frames_df
     
     def __graph(self) -> DataFrame:
@@ -106,7 +107,7 @@ def to_csv(speedscope_file: str, out_dir: str, functions_file: str | None = None
     filename = Path(speedscope_file).stem
     sandwich_path = os.path.join(out_dir, f'{filename}.sandwich.csv')
     graph_path = os.path.join(out_dir, f'{filename}.graph.csv')
-    speedscope.sandwich.to_csv(sandwich_path, index=None, quoting=csv.QUOTE_ALL)
+    speedscope.sandwich[~speedscope.sandwich['fq_name'].isna()].to_csv(sandwich_path, index=None, quoting=csv.QUOTE_ALL)
     speedscope.graph.to_csv(graph_path, index=None, quoting=csv.QUOTE_ALL)
 
 

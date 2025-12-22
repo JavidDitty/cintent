@@ -95,8 +95,8 @@ def parse_session(session_file: str, out_dir: str):
     
     # Dump session parse to file(s)
     filename = Path(session_file).stem
-    metadata_path = os.path.join(out_dir, f'{filename}.json')
-    render_path = os.path.join(out_dir, f'{filename}.csv')
+    metadata_path = os.path.join(out_dir, f'{filename}.render_md.json')
+    render_path = os.path.join(out_dir, f'{filename}.render.csv')
     with open(metadata_path, 'w') as file:
         metadata_str = [f'"{k}":"{v}"' for k, v in metadata.items()]
         file.write('{' + ','.join(metadata_str) + '}')
