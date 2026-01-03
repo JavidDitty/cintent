@@ -50,27 +50,31 @@ class Scalene:
     
     def __graph(self) -> DataFrame:
         """Create a transition graph that includes all the frames"""
-        counter = Counter()
-        
-        def relpath(function: str) -> str | None:
-            repo = re.search(r'/home/runner/work/.+?/.+?/', function)
-            if repo and 'site-packages' not in function:
-                script = re.search(r'.+\.py', function.removeprefix(repo.group()))
-                if script:
-                    return script.group()
+        def fq_name(function: str) -> str | None:
+            repo_match = re.search(r'/home/runner/work/.+?/.+?/', function)
+            if repo_match and 'site-packages' not in function:
+                repo_path = repo_match.group()
+                rel_path = function.removeprefix(repo_path)
+                script_match = re.search(r'.+\.py', rel_path)
+                if script_match:
+                    script_path = script_match.group()
+                    function_name = script_match.string.removeprefix(script_path).split(':', maxsplit=1)[0].strip()
+                    module_name = script_path.removesuffix('.py').replace('/', '.')
+                    return f'{module_name}.{function_name}'
             return None
-
+        
+        transition_counter = Counter()
         for stack, info in self.base['stacks']:
             for curr_idx in range(len(stack)):
                 next_idx = curr_idx + 1
                 if next_idx < len(stack):
                     curr, next = stack[curr_idx], stack[next_idx]
-                    curr_str, next_str = relpath(curr), relpath(next)
+                    curr_str, next_str = fq_name(curr), fq_name(next)
                     if curr_str is not None and next_str is not None:
-                        counter.update([(curr_str, next_str)] * info['count'])
+                        transition_counter.update([(curr_str, next_str)] * info['count'])
 
-        transitions = [(row, col, count) for (row, col), count in counter.items()]
-        count_df = DataFrame(transitions, columns=['from', 'to', 'count'])
+        transition_records = [(row, col, count) for (row, col), count in transition_counter.items()]
+        count_df = DataFrame(transition_records, columns=['from', 'to', 'count'])
         graph_df = count_df.pivot(index='from', columns='to', values='count').fillna(0)
         return graph_df
 
