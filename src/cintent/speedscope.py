@@ -52,7 +52,8 @@ class Speedscope:
                             frames[frame_idx]['relpath'] = None
                         frames[frame_idx]['frame_idx'] = frame_idx
         frames_df = DataFrame(frames)[['frame_idx','name','fq_name','header','file','relpath','line','col','weight']]
-        # frames_df = frames_df[~frames_df['fq_name'].isna()]
+        # Only frames in the target repository have fq_name, so fq_name can be used to filter out irrelevant frames
+        # E.g. frames_df = frames_df[~frames_df['fq_name'].isna()]
         return frames_df
     
     def __graph(self) -> DataFrame:
@@ -66,7 +67,7 @@ class Speedscope:
         frames = sorted(frames)
         num_of_frames = len(frames)
         frame_to_index = {frame: i for i, frame in enumerate(frames)}
-        index_to_name = {row.frame_idx: row.fq_name for row in self.sandwich.itertuples()}
+        index_to_name = {row.frame_idx: row.name for row in self.sandwich.itertuples()}
 
         # Create the transition count matrix
         transition_counts = np.zeros((num_of_frames, num_of_frames), dtype=int)
@@ -90,12 +91,13 @@ class Speedscope:
             for j, c_cell, p_cell in zip(indicies, c_row, p_row):
                 if index_to_name[i] and index_to_name[j] and c_cell > 0:
                     transition_df.append({
-                        'src': index_to_name[i], 
-                        'dest': index_to_name[j], 
+                        'src_idx': i,
+                        'dest_idx': j,
                         'count': c_cell, 
                         'probability': p_cell,
                     })
-        transition_df = DataFrame(transition_df).sort_values(by='count', ascending=False)
+        columns = ['src_idx', 'dest_idx', 'count', 'probability']
+        transition_df = DataFrame(transition_df, columns=columns).sort_values(by='count', ascending=False)
         return transition_df
 
 
@@ -107,7 +109,8 @@ def to_csv(speedscope_file: str, out_dir: str, functions_file: str | None = None
     filename = Path(speedscope_file).stem
     sandwich_path = os.path.join(out_dir, f'{filename}.sandwich.csv')
     graph_path = os.path.join(out_dir, f'{filename}.graph.csv')
-    speedscope.sandwich[~speedscope.sandwich['fq_name'].isna()].to_csv(sandwich_path, index=None, quoting=csv.QUOTE_ALL)
+    # speedscope.sandwich[~speedscope.sandwich['fq_name'].isna()].to_csv(sandwich_path, index=None, quoting=csv.QUOTE_ALL)
+    speedscope.sandwich.to_csv(sandwich_path, index=None, quoting=csv.QUOTE_ALL)
     speedscope.graph.to_csv(graph_path, index=None, quoting=csv.QUOTE_ALL)
 
 
