@@ -10,16 +10,24 @@ from pandas import DataFrame
 
 
 class Speedscope:
-    def __init__(self, speedscope_file: str, functions_file: str | None = None) -> None:
+    def __init__(self, speedscope_file: str | dict, functions_file: str | DataFrame | None = None) -> None:
         # Load the Speedscope file
-        self.speedscope_file = speedscope_file
-        with open(self.speedscope_file, 'r') as file:
-            self.base = json.load(file)
+        if isinstance(speedscope_file, str) and os.path.isfile(speedscope_file):
+            self.speedscope_file = speedscope_file
+            with open(self.speedscope_file, 'r') as file:
+                self.base = json.load(file)
+        elif isinstance(speedscope_file, dict):
+            self.base = speedscope_file
+        else:
+            raise TypeError()
 
         # Load the CIntent functions file
-        self.functions_file = functions_file
-        if self.functions_file:
-            self.functions = pd.read_csv(self.functions_file)
+        if isinstance(functions_file, str) and os.path.isfile(functions_file):
+            self.functions_file = functions_file
+            if self.functions_file:
+                self.functions = pd.read_csv(self.functions_file)
+        elif isinstance(functions_file, DataFrame):
+            self.functions = functions_file
 
         # Parse Speedscope representations
         self.sandwich = self.__sandwich()
@@ -35,7 +43,7 @@ class Speedscope:
                     if 'weight' not in frames[frame_idx]:
                         frames[frame_idx]['weight'] = 0
                     frames[frame_idx]['weight'] += weight
-                    if self.functions_file and any(item not in frames[frame_idx] for item in ('fq_name', 'header', 'relpath')):
+                    if self.functions is not None and any(item not in frames[frame_idx] for item in ('fq_name', 'header', 'relpath')):
                         functions = self.functions
                         functions = functions[functions['name'] == frames[frame_idx]['name']]
                         functions = functions[functions['line'] == frames[frame_idx]['line']]
@@ -51,7 +59,11 @@ class Speedscope:
                             frames[frame_idx]['header'] = None
                             frames[frame_idx]['relpath'] = None
                         frames[frame_idx]['frame_idx'] = frame_idx
-        frames_df = DataFrame(frames)[['frame_idx','name','fq_name','header','file','relpath','line','col','weight']]
+        columns = ['frame_idx','name','fq_name','header','file','relpath','line','col','weight']
+        try:
+            frames_df = DataFrame(frames)[columns]
+        except KeyError:
+            frames_df = DataFrame([], columns=columns)
         # Only frames in the target repository have fq_name, so fq_name can be used to filter out irrelevant frames
         # E.g. frames_df = frames_df[~frames_df['fq_name'].isna()]
         return frames_df
@@ -92,26 +104,28 @@ class Speedscope:
                 if index_to_name[i] and index_to_name[j] and c_cell > 0:
                     transition_df.append({
                         'src_idx': i,
-                        'dest_idx': j,
+                        'dst_idx': j,
                         'count': c_cell, 
                         'probability': p_cell,
                     })
-        columns = ['src_idx', 'dest_idx', 'count', 'probability']
+        columns = ['src_idx', 'dst_idx', 'count', 'probability']
         transition_df = DataFrame(transition_df, columns=columns).sort_values(by='count', ascending=False)
         return transition_df
 
 
-def to_csv(speedscope_file: str, out_dir: str, functions_file: str | None = None) -> None:
+def to_csv(speedscope_file: str, out_dir: str | None = None, functions_file: str | None = None) -> Speedscope | None:
     # Parse a speedscope file
     speedscope = Speedscope(speedscope_file=speedscope_file, functions_file=functions_file)
 
     # Dump the speedscope representation(s)
-    filename = Path(speedscope_file).stem
-    sandwich_path = os.path.join(out_dir, f'{filename}.sandwich.csv')
-    graph_path = os.path.join(out_dir, f'{filename}.graph.csv')
-    # speedscope.sandwich[~speedscope.sandwich['fq_name'].isna()].to_csv(sandwich_path, index=None, quoting=csv.QUOTE_ALL)
-    speedscope.sandwich.to_csv(sandwich_path, index=None, quoting=csv.QUOTE_ALL)
-    speedscope.graph.to_csv(graph_path, index=None, quoting=csv.QUOTE_ALL)
+    if out_dir:
+        filename = Path(speedscope_file).stem
+        sandwich_path = os.path.join(out_dir, f'{filename}.sandwich.csv')
+        graph_path = os.path.join(out_dir, f'{filename}.graph.csv')
+        # speedscope.sandwich[~speedscope.sandwich['fq_name'].isna()].to_csv(sandwich_path, index=None, quoting=csv.QUOTE_ALL)
+        speedscope.sandwich.to_csv(sandwich_path, index=None, quoting=csv.QUOTE_ALL)
+        speedscope.graph.to_csv(graph_path, index=None, quoting=csv.QUOTE_ALL)
+    return speedscope
 
 
 def parse_args() -> Namespace:
