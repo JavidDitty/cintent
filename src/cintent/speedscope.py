@@ -1,4 +1,5 @@
 from argparse import ArgumentParser, Namespace
+from copy import deepcopy
 import csv
 import json
 import os
@@ -7,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
+from tqdm import tqdm
 
 
 class Speedscope:
@@ -66,51 +68,42 @@ class Speedscope:
             frames_df = DataFrame([], columns=columns)
         # Only frames in the target repository have fq_name, so fq_name can be used to filter out irrelevant frames
         # E.g. frames_df = frames_df[~frames_df['fq_name'].isna()]
+        mask = frames_df['file'].str.contains(r'/home/runner/work/cintent-.*?/cintent-.*?/', regex=True)
+        frames_df = frames_df[mask]
         return frames_df
     
     def __graph(self) -> DataFrame:
         """Create a transition graph that includes all the frames"""
-        # Get the frame stacks and the unique frames
-        samples, frames = [], set()
-        for profile in self.base['profiles']:
-            for sample in profile['samples']:
-                frames.update(sample)
-            samples += profile['samples']
-        frames = sorted(frames)
-        num_of_frames = len(frames)
-        frame_to_index = {frame: i for i, frame in enumerate(frames)}
-        index_to_name = {row.frame_idx: row.name for row in self.sandwich.itertuples()}
+        graph = {}
+        profiles = deepcopy(self.base['profiles'])
 
-        # Create the transition count matrix
-        transition_counts = np.zeros((num_of_frames, num_of_frames), dtype=int)
-        for sample in samples:
-            for i in range(len(sample)-1):
-                curr = frame_to_index[sample[i]]
-                next = frame_to_index[sample[i+1]]
-                transition_counts[curr, next] += 1
-
-        # Normalize the counts to probabilities
-        transition_matrix = np.zeros((num_of_frames, num_of_frames), dtype=float)
-        for i in range(num_of_frames):
-            row_sum = transition_counts[i, :].sum()
-            if row_sum > 0:
-                transition_matrix[i, :] = transition_counts[i, :] / row_sum
+        # Remove library frames
+        frames = set(self.sandwich['frame_idx'].to_list())
+        for i, profile in enumerate(profiles):
+            for j, sample in enumerate(profile['samples']):
+                profiles[i]['samples'][j] = [frame for frame in sample if frame in frames]
         
-        # Convert transition counts and matrix to a dataframe
-        transition_df = []
-        indicies = list(range(len(transition_counts)))
-        for i, c_row, p_row in zip(indicies, transition_counts, transition_matrix):
-            for j, c_cell, p_cell in zip(indicies, c_row, p_row):
-                if index_to_name[i] and index_to_name[j] and c_cell > 0:
-                    transition_df.append({
-                        'src_idx': i,
-                        'dst_idx': j,
-                        'count': c_cell, 
-                        'probability': p_cell,
-                    })
-        columns = ['src_idx', 'dst_idx', 'count', 'probability']
-        transition_df = DataFrame(transition_df, columns=columns).sort_values(by='count', ascending=False)
-        return transition_df
+        # Count the (transitive) frame transitions
+        for profile in profiles:
+            for sample in profile['samples']:
+                length = len(sample)
+                for i in range(length):
+                    src = sample[i]
+                    if src not in graph:
+                        graph[src] = {}
+                    if i+1 < length:
+                        dst = sample[i+1]
+                        if dst not in graph[src]:
+                            graph[src][dst] = 0
+                        graph[src][dst] += 1
+
+        # Convert the graph to a dataframe
+        graph_df = DataFrame([], columns=['src_idx', 'dst_idx', 'count'])
+        for src_idx, transitions in graph.items():
+            for dst_idx, count in transitions.items():
+                graph_df.loc[len(graph_df)] = [src_idx, dst_idx, count]
+
+        return graph_df
 
 
 def to_csv(speedscope_file: str, out_dir: str | None = None, functions_file: str | None = None) -> Speedscope | None:
