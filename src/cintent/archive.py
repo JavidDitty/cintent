@@ -94,11 +94,12 @@ def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
                             speedscope = to_csv(speedscope_file=json.loads(file_str), functions_file=files['functions'])
                             speedscope.sandwich.insert(loc=0, column='step_id', value=step_id)
                             speedscope.graph.insert(loc=0, column='step_id', value=step_id)
+                            speedscope.sandwich.insert(loc=0, column='timestamp_id', value=timestamp)
+                            speedscope.graph.insert(loc=0, column='timestamp_id', value=timestamp)
                             files['sandwich'].append(speedscope.sandwich)
                             files['graph'].append(speedscope.graph)
                         case _:
                             pass
-                            # raise TypeError(f'Unexpected file type for "{filename}"')
                 else:
                     pass
 
@@ -137,6 +138,7 @@ def parse_args() -> Namespace:
     parser = ArgumentParser(description='Parse a CIntent archive')
     parser.add_argument('archive_path', type=os.path.abspath, help='path to a CIntent archive or directory of archives')
     parser.add_argument('-o', '--out_dir', default='out', type=os.path.abspath, help='path to an out directory')
+    parser.add_argument('--overwrite', action='store_true', help='whether to overwrite the existing parses')
     return parser.parse_args()
 
 
@@ -153,14 +155,14 @@ if __name__ == '__main__':
     else:
         paths = sorted(glob.glob(os.path.join(args.archive_path, 'cintent-*')))
         for path in tqdm(paths, desc='Parsing Logs'):
-            if not os.path.isdir(os.path.join(path, 'parse')):
+            if args.overwrite or not os.path.isdir(os.path.join(path, 'parse')):
                 subpaths = sorted(glob.glob(os.path.join(path, '*-cintent_logs.zip')))
                 for subpath in subpaths:
                     parse_archive(archive_path=subpath, out_dir=path)
 
-        graph_header = ['repo_id','job_id','src_idx','dst_idx','count']
+        graph_header = ['repo_id','job_id','step_id','timestamp_id','src_idx','dst_idx','count']
         metadata_header = ['repository','branch','commit','workflow','run_number','run_attempt','workspace','job_id','matrix','step_id','start_time','end_time']
-        sandwich_header = ['repo_id','job_id','frame_idx','name','fq_name','header','file','relpath','line','col','weight']
+        sandwich_header = ['repo_id','job_id','step_id','timestamp_id','frame_idx','name','fq_name','header','file','relpath','line','col','weight']
 
         graph = DataFrame([], columns=graph_header)
         metadata = DataFrame([], columns=metadata_header)

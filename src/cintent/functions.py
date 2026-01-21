@@ -1,12 +1,11 @@
 from argparse import ArgumentParser, Namespace
-import csv
+from csv import DictWriter, QUOTE_ALL
 import json
 import glob
 import os
 from pathlib import Path
 import re
 
-from pandas import DataFrame
 from typing import Generator
 from tree_sitter import Language, Parser, Tree, Node
 import tree_sitter_python
@@ -91,6 +90,8 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
 
             # Get the line number of the function
             line = node.start_point.row + 1
+            if node.parent is not None and node.parent.type == 'decorated_definition':
+                line = node.parent.start_point.row + 1
 
             # Get the header of the function
             parameters = node.child_by_field_name('parameters').text.decode()
@@ -99,6 +100,9 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
             if return_type:
                 return_type = return_type.text.decode()
                 header = f'{header} -> {return_type}'
+            if node.parent is not None and node.parent.type == 'decorated_definition':
+                decorator = node.parent.children[0].text.decode()
+                header = f'{decorator}\n{header}'
             
             # Return the function's metadata
             yield \
@@ -117,16 +121,19 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
 def to_csv(root_dir: str, out_dir: str) -> None:
     # Parse the function metadata from the repository
     functions = list(parse_functions(root_dir=root_dir))
-    functions_df = DataFrame(functions)
 
     # Dump the function metadata to a file
     filename = f'{Path(root_dir).stem}.functions.csv'
     out_path = os.path.join(out_dir, filename)
-    functions_df.to_csv(out_path, index=False, quoting=csv.QUOTE_ALL)
+    with open(out_path, mode='w', encoding='utf-8', newline='') as file:
+        fieldnames = ['name', 'fq_name', 'header', 'docstring', 'class_name', 'class_docstring', 'path', 'line']
+        writer = DictWriter(file, fieldnames=fieldnames, quoting=QUOTE_ALL)
+        writer.writeheader()
+        writer.writerows(functions)
 
 
 def parse_args() -> Namespace:
-    parser = ArgumentParser(description='Parse Python functions/methods from Repositories')
+    parser = ArgumentParser(description='Parse Python functions/methods from repositories')
     parser.add_argument('root_dir', type=os.path.abspath, help='path to the root directory of a repository')
     parser.add_argument('-o', '--out_dir', default='out', type=os.path.abspath, help='path to an out directory')
     return parser.parse_args()
