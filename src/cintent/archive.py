@@ -107,7 +107,7 @@ def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
         repo_id = files['metadata'][0]['repository']
         job_id = files['metadata'][0]['job_id']
         files['sandwich'] = pd.concat(files['sandwich']) if files['sandwich'] else DataFrame([], columns=['frame_idx','name','fq_name','header','file','relpath','line','col','weight'])
-        files['graph'] = pd.concat(files['graph']) if files['graph'] else DataFrame([], columns=['src_idx', 'dst_idx', 'count'])
+        files['graph'] = pd.concat(files['graph']) if files['graph'] else DataFrame([], columns=['src_idx','dst_idx','depth','count'])
         files['sandwich'].insert(loc=0, column='job_id', value=job_id)
         files['sandwich'].insert(loc=0, column='repo_id', value=repo_id)
         files['graph'].insert(loc=0, column='job_id', value=job_id)
@@ -160,7 +160,7 @@ if __name__ == '__main__':
                 for subpath in subpaths:
                     parse_archive(archive_path=subpath, out_dir=path)
 
-        graph_header = ['repo_id','job_id','step_id','timestamp_id','src_idx','dst_idx','count']
+        graph_header = ['repo_id','job_id','step_id','timestamp_id','src_idx','dst_idx','depth','count']
         metadata_header = ['repository','branch','commit','workflow','run_number','run_attempt','workspace','job_id','matrix','step_id','start_time','end_time']
         sandwich_header = ['repo_id','job_id','step_id','timestamp_id','frame_idx','name','fq_name','header','file','relpath','line','col','weight']
 

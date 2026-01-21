@@ -66,7 +66,7 @@ class Speedscope:
             frames_df = DataFrame(frames)[columns]
         except KeyError:
             frames_df = DataFrame([], columns=columns)
-        # Only frames in the target repository have fq_name, so fq_name can be used to filter out irrelevant frames
+        # Only function frames in the target repository have fq_name, so fq_name can be used to filter out irrelevant frames
         # E.g. frames_df = frames_df[~frames_df['fq_name'].isna()]
         mask = frames_df['file'].str.contains(r'/home/runner/work/cintent-.*?/cintent-.*?/', regex=True)
         frames_df = frames_df[mask]
@@ -94,14 +94,14 @@ class Speedscope:
                     if i+1 < length:
                         dst = sample[i+1]
                         if dst not in graph[src]:
-                            graph[src][dst] = 0
-                        graph[src][dst] += 1
+                            graph[src][dst] = {'depth': i+1, 'count': 0}
+                        graph[src][dst]['count'] += 1
 
         # Convert the graph to a dataframe
-        graph_df = DataFrame([], columns=['src_idx', 'dst_idx', 'count'])
+        graph_df = DataFrame([], columns=['src_idx', 'dst_idx', 'depth', 'count'])
         for src_idx, transitions in graph.items():
-            for dst_idx, count in transitions.items():
-                graph_df.loc[len(graph_df)] = [src_idx, dst_idx, count]
+            for dst_idx, value in transitions.items():
+                graph_df.loc[len(graph_df)] = [src_idx, dst_idx, value['depth'], value['count']]
 
         return graph_df
 
