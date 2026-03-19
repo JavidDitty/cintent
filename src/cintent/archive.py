@@ -14,6 +14,7 @@ from pandas import DataFrame
 from tqdm import tqdm
 
 from cintent.speedscope import to_csv
+from cintent.trace import TraceProfile
 
 
 def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
@@ -51,9 +52,17 @@ def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
         for filename in tqdm(archive.namelist(), desc=f'Processing {archive_path}'):
             file_info = archive.getinfo(filename)
             if not file_info.is_dir():
-                file_str = archive.read(filename).decode()
+                try:
+                    file_str = archive.read(filename).decode()
+                except UnicodeDecodeError:
+                    continue   # skip binary files (e.g. .pyc bytecode)
                 if '.functions.' not in filename:
-                    timestamp, step_id, file_type, extension = filename.split('.')
+                    parts = filename.split('.')
+                    # Expect exactly 4 parts: timestamp.step_id.file_type.extension
+                    # Skip files that don't match (e.g. uprobe_2887.pid)
+                    if len(parts) != 4:
+                        continue
+                    timestamp, step_id, file_type, extension = parts
                     match file_type:
                         case 'metadata':
                             metadata = {}
@@ -98,6 +107,30 @@ def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
                             speedscope.graph.insert(loc=0, column='timestamp_id', value=timestamp)
                             files['sandwich'].append(speedscope.sandwich)
                             files['graph'].append(speedscope.graph)
+                        case 'uprobe':
+                            trace = TraceProfile(trace_data=file_str, trace_format='uprobe', functions_file=files['functions'])
+                            if not trace.sandwich.empty:
+                                trace.sandwich.insert(loc=0, column='step_id', value=step_id)
+                                trace.graph.insert(loc=0, column='step_id', value=step_id)
+                                trace.sandwich.insert(loc=0, column='timestamp_id', value=timestamp)
+                                trace.graph.insert(loc=0, column='timestamp_id', value=timestamp)
+                                files['sandwich'].append(trace.sandwich)
+                                files['graph'].append(trace.graph)
+                        case 'setprofile':
+                            trace = TraceProfile(trace_data=file_str, trace_format='setprofile', functions_file=files['functions'])
+                            if not trace.sandwich.empty:
+                                trace.sandwich.insert(loc=0, column='step_id', value=step_id)
+                                trace.graph.insert(loc=0, column='step_id', value=step_id)
+                                trace.sandwich.insert(loc=0, column='timestamp_id', value=timestamp)
+                                trace.graph.insert(loc=0, column='timestamp_id', value=timestamp)
+                                files['sandwich'].append(trace.sandwich)
+                                files['graph'].append(trace.graph)
+                        case 'perf':
+                            # perf.data is a binary format that cannot be parsed directly.
+                            # Convert upstream on Linux CI with:
+                            #   perf script -i file.perf.data > file.speedscope.json
+                            print(f'[cintent] Skipping binary perf.data file: {filename} '
+                                  '(convert to speedscope JSON upstream)')
                         case _:
                             pass
                 else:

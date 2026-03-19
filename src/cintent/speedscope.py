@@ -66,9 +66,10 @@ class Speedscope:
             frames_df = DataFrame(frames)[columns]
         except KeyError:
             frames_df = DataFrame([], columns=columns)
-        # Only function frames in the target repository have fq_name, so fq_name can be used to filter out irrelevant frames
-        # E.g. frames_df = frames_df[~frames_df['fq_name'].isna()]
-        mask = frames_df['file'].str.contains(r'/home/runner/work/cintent-.*?/cintent-.*?/', regex=True)
+        # Keep only frames whose source file lives inside the GitHub Actions
+        # workspace (/home/runner/work/<repo>/<repo>/).  This filters out
+        # stdlib, installed packages and other non-repo code.
+        mask = frames_df['file'].str.contains(r'/home/runner/work/[^/]+/[^/]+/', regex=True)
         frames_df = frames_df[mask]
         return frames_df
     
