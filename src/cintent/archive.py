@@ -17,6 +17,22 @@ from cintent.speedscope import to_csv
 from cintent.trace import TraceProfile
 
 
+def _normalize_file_type(file_type: str) -> str:
+    """Normalize profiler/log file type names to canonical parser keys."""
+    if not file_type:
+        return file_type
+    lowered = file_type.strip().lower()
+    compact = lowered.replace('-', '').replace('_', '').replace('.', '')
+    aliases = {
+        'pyspy': 'speedscope',
+        'speedscope': 'speedscope',
+        'uprobe': 'uprobe',
+        'setprofile': 'setprofile',
+        'systemprofile': 'setprofile',
+    }
+    return aliases.get(compact, lowered)
+
+
 def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
     """Parse a CIntent archive"""
     files = {
@@ -58,11 +74,17 @@ def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
                     continue   # skip binary files (e.g. .pyc bytecode)
                 if '.functions.' not in filename:
                     parts = filename.split('.')
-                    # Expect exactly 4 parts: timestamp.step_id.file_type.extension
-                    # Skip files that don't match (e.g. uprobe_2887.pid)
-                    if len(parts) != 4:
+                    # Parse file names in the general form:
+                    #   timestamp.step_id.file_type.extension
+                    # file_type can contain dots/underscores/hyphens
+                    # (e.g. "system.profile"), so we only require >= 4 parts.
+                    # Skip non-log entries (e.g. "_site_1/sitecustomize.py",
+                    # "uprobe_2887.pid").
+                    if len(parts) < 4:
                         continue
-                    timestamp, step_id, file_type, extension = parts
+                    timestamp, step_id = parts[0], parts[1]
+                    file_type = '.'.join(parts[2:-1])
+                    file_type = _normalize_file_type(file_type)
                     match file_type:
                         case 'metadata':
                             metadata = {}
@@ -194,7 +216,7 @@ if __name__ == '__main__':
                     parse_archive(archive_path=subpath, out_dir=path)
 
         graph_header = ['repo_id','job_id','step_id','timestamp_id','src_idx','dst_idx','depth','count']
-        metadata_header = ['repository','branch','commit','workflow','run_number','run_attempt','workspace','job_id','matrix','step_id','start_time','end_time']
+        metadata_header = ['repository','branch','commit','workflow','run_number','run_attempt','workspace','job_id','matrix','profiler_requested','profiler','step_id','start_time','end_time']
         sandwich_header = ['repo_id','job_id','step_id','timestamp_id','frame_idx','name','fq_name','header','file','relpath','line','col','weight']
 
         graph = DataFrame([], columns=graph_header)
