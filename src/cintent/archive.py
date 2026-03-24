@@ -116,7 +116,7 @@ def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
                                 trace.graph.insert(loc=0, column='timestamp_id', value=timestamp)
                                 files['sandwich'].append(trace.sandwich)
                                 files['graph'].append(trace.graph)
-                        case 'setprofile':
+                        case 'setprofile' | 'sysmonitor':
                             trace = TraceProfile(trace_data=file_str, trace_format='setprofile', functions_file=files['functions'])
                             if not trace.sandwich.empty:
                                 trace.sandwich.insert(loc=0, column='step_id', value=step_id)
