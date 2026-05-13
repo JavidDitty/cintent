@@ -1,8 +1,9 @@
 """
 Parse trace-based profiler output (uprobe, setprofile) into sandwich and graph DataFrames.
 
-Uprobe CSV format:   timestamp,pid,event,function,file,line,duration_ns
-Setprofile CSV format: timestamp_ns,event,function,filename,line
+Uprobe CSV format:     timestamp,pid,event,function,file,line,duration_ns
+Setprofile CSV format: timestamp_ns,thread_id,event,function,filename,line
+                   or: timestamp_ns,event,function,filename,line  (legacy, no thread separation)
 """
 
 from io import StringIO
@@ -51,8 +52,8 @@ class TraceProfile:
             return DataFrame()
 
         try:
-            df = pd.read_csv(StringIO(trace_data))
-        except (pd.errors.EmptyDataError, pd.errors.ParserError):
+            df = pd.read_csv(StringIO(trace_data), on_bad_lines='skip')
+        except pd.errors.EmptyDataError:
             return DataFrame()
 
         if df.empty:
@@ -76,16 +77,50 @@ class TraceProfile:
 
         elif self.trace_format == 'setprofile':
             # Expected: timestamp_ns,event,function,filename,line
+            #      or: timestamp_ns,thread_id,event,function,filename,line
             df = df.rename(columns={'timestamp_ns': 'timestamp', 'filename': 'file'})
             required = {'event', 'function', 'file', 'line'}
             if not required.issubset(df.columns):
                 return DataFrame()
-            if 'pid' not in df.columns:
+            # Use thread_id as the stack-separation key when available
+            if 'thread_id' in df.columns:
+                df['pid'] = df['thread_id']
+            elif 'pid' not in df.columns:
                 df['pid'] = 0
             if 'duration_ns' not in df.columns:
                 df['duration_ns'] = 0
             if 'timestamp' not in df.columns:
                 df['timestamp'] = 0
+
+        # Normalize and sanitize common columns to handle malformed trace rows.
+        df = df.dropna(subset=['event', 'function', 'file', 'line'])
+        if df.empty:
+            return DataFrame()
+
+        df['event'] = df['event'].astype(str).str.strip().str.lower()
+        df = df[df['event'].isin({'call', 'return'})]
+        if df.empty:
+            return DataFrame()
+
+        df['function'] = df['function'].astype(str).str.strip()
+        df['file'] = df['file'].astype(str).str.strip()
+        df['line'] = pd.to_numeric(df['line'], errors='coerce')
+        df['timestamp'] = pd.to_numeric(df['timestamp'], errors='coerce').fillna(0)
+        df['pid'] = pd.to_numeric(df['pid'], errors='coerce').fillna(0)
+        df['duration_ns'] = pd.to_numeric(df['duration_ns'], errors='coerce').fillna(0)
+
+        df = df[
+            (df['function'] != '')
+            & (df['file'] != '')
+            & df['line'].notna()
+        ]
+        if df.empty:
+            return DataFrame()
+
+        df['line'] = df['line'].astype(int)
+        df['timestamp'] = df['timestamp'].astype('int64')
+        df['pid'] = df['pid'].astype(int)
+        df['duration_ns'] = df['duration_ns'].astype('int64')
 
         return df
 
@@ -187,10 +222,12 @@ class TraceProfile:
             return DataFrame(columns=['function', 'file', 'line', 'duration_ns'])
 
         durations: list[dict] = []
+        # Per-thread call stacks keyed by (pid/thread_id, function, file, line)
         call_stacks: dict[tuple, list[int]] = {}
 
         for _, event in self.events.iterrows():
-            key = (event['function'], str(event['file']), int(event['line']))
+            pid = int(event.get('pid', 0))
+            key = (pid, event['function'], str(event['file']), int(event['line']))
 
             if event['event'] == 'call':
                 call_stacks.setdefault(key, []).append(int(event['timestamp']))
@@ -199,9 +236,9 @@ class TraceProfile:
                     call_ts = call_stacks[key].pop()
                     duration = int(event['timestamp']) - call_ts
                     durations.append({
-                        'function': key[0],
-                        'file': key[1],
-                        'line': key[2],
+                        'function': key[1],
+                        'file': key[2],
+                        'line': key[3],
                         'duration_ns': max(0, duration),
                     })
 
@@ -244,9 +281,12 @@ class TraceProfile:
 
                     if parent_idx is not None:
                         edge = (parent_idx, frame_idx)
+                        depth = sum(1 for s in stack if s is not None and s in valid_frames)
                         if edge not in graph:
-                            depth = sum(1 for s in stack if s is not None and s in valid_frames)
                             graph[edge] = {'depth': depth, 'count': 0}
+                        else:
+                            # Keep the minimum (shallowest / most-direct) depth seen
+                            graph[edge]['depth'] = min(graph[edge]['depth'], depth)
                         graph[edge]['count'] += 1
 
                     stack.append(frame_idx)
@@ -255,7 +295,12 @@ class TraceProfile:
 
             elif event['event'] == 'return':
                 if stack:
-                    stack.pop()
+                    # Pop only if the top of the stack matches this frame,
+                    # to avoid corrupting depth tracking on unmatched events.
+                    top = stack[-1]
+                    expected_frame = self.frame_map.get(key)
+                    if top == expected_frame or top is None:
+                        stack.pop()
 
         rows = [
             {'src_idx': src, 'dst_idx': dst, 'depth': val['depth'], 'count': val['count']}

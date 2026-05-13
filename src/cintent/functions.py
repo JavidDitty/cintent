@@ -61,9 +61,9 @@ def parse_functions(root_dir: str) -> Generator[dict, None, None]:
             while parent is not None:
                 if parent.type in ('class_definition', 'function_definition'):
                     parent_name = parent.child_by_field_name('name').text.decode()
-                    if class_name is not None and parent.type == 'class_definition':
+                    if parent.type == 'class_definition':
                         class_name = parent_name
-                        candidate = node.child_by_field_name('body').child(0)
+                        candidate = parent.child_by_field_name('body').child(0)
                         if candidate.type == 'expression_statement' and candidate.child(0).type == 'string':
                             class_docstring = candidate.text.decode()
                     fq_name.append(parent_name)

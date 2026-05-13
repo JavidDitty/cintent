@@ -19,6 +19,7 @@ class Scalene:
 
         # Load the CIntent functions file
         self.functions_file = functions_file
+        self.functions = None
         if self.functions_file:
             self.functions = pd.read_csv(self.functions_file)
 
