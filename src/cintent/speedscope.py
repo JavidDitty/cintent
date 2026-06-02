@@ -84,19 +84,20 @@ class Speedscope:
             for j, sample in enumerate(profile['samples']):
                 profiles[i]['samples'][j] = [frame for frame in sample if frame in frames]
         
-        # Count the (transitive) frame transitions
+        # Count the direct frame transitions (adjacent pairs in each sample)
+        # depth=1 for all pairs: every adjacent pair in a stack sample is a
+        # direct call, consistent with depth semantics in trace.py.
         for profile in profiles:
             for sample in profile['samples']:
                 length = len(sample)
-                for i in range(length):
+                for i in range(length - 1):
                     src = sample[i]
+                    dst = sample[i + 1]
                     if src not in graph:
                         graph[src] = {}
-                    if i+1 < length:
-                        dst = sample[i+1]
-                        if dst not in graph[src]:
-                            graph[src][dst] = {'depth': i+1, 'count': 0}
-                        graph[src][dst]['count'] += 1
+                    if dst not in graph[src]:
+                        graph[src][dst] = {'depth': 1, 'count': 0}
+                    graph[src][dst]['count'] += 1
 
         # Convert the graph to a dataframe
         graph_df = DataFrame([], columns=['src_idx', 'dst_idx', 'depth', 'count'])

@@ -1,11 +1,5 @@
 from argparse import ArgumentParser, Namespace
-from collections import Counter
-import glob
-import json
 import os
-from pathlib import Path
-
-from cintent.workflow import get_context_dependencies
 
 
 def parse_args() -> Namespace:
@@ -14,11 +8,11 @@ def parse_args() -> Namespace:
     subparsers = parser.add_subparsers(dest='command', required=True, help='Available commands')
 
     workflow_parser = subparsers.add_parser('workflow', help='Manage and analyze GitHub Actions workflows')
-    workflow_subparsers = workflow_parser.add_subparsers('workflow_command', required=True, help='Available workflow commands')
+    workflow_subparsers = workflow_parser.add_subparsers(dest='workflow_command', required=True, help='Available workflow commands')
 
     workflow_subparsers.add_parser('clone', help='Clone repositories from ')
     workflow_parser.add_argument('workflow_dir', type=os.path.abspath, help='path to a directory containing GitHub Actions workflows')
-    
+
     return parser.parse_args()
 
 

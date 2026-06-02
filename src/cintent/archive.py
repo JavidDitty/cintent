@@ -42,12 +42,13 @@ def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
             if '.functions.' in filename:
                 function_filename = filename
                 break
-        assert function_filename is not None
+        if function_filename is None:
+            raise ValueError(f'No .functions. file found in archive: {archive_path}')
         function_str = archive.read(function_filename).decode()
         try:
             files['functions'] = pd.read_csv(StringIO(function_str))
         except pd.errors.EmptyDataError:
-            return
+            return files
 
         for filename in tqdm(archive.namelist(), desc=f'Processing {archive_path}'):
             file_info = archive.getinfo(filename)
@@ -116,7 +117,7 @@ def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
                                 trace.graph.insert(loc=0, column='timestamp_id', value=timestamp)
                                 files['sandwich'].append(trace.sandwich)
                                 files['graph'].append(trace.graph)
-                        case 'setprofile':
+                        case 'setprofile' | 'sysmonitor':
                             trace = TraceProfile(trace_data=file_str, trace_format='setprofile', functions_file=files['functions'])
                             if not trace.sandwich.empty:
                                 trace.sandwich.insert(loc=0, column='step_id', value=step_id)
@@ -155,7 +156,7 @@ def parse_archive(archive_path: str, out_dir: str) -> dict[str, Any]:
         # files['opensnoop'].insert(loc=0, column='repo_id', value=repo_id)
         
         archive_name = Path(archive_path).stem
-        parse_dir = os.path.join(out_dir, f'parse')
+        parse_dir = os.path.join(out_dir, 'parse')
         if not os.path.isdir(parse_dir):
             os.mkdir(parse_dir)
         files['metadata'].to_csv(os.path.join(parse_dir, f'{archive_name}_metadata.csv'), index=False, quoting=csv.QUOTE_ALL)
