@@ -61,21 +61,24 @@ def parse_archive(archive_path: str, out_paths: dict[str, str]) -> None:
             elif filename.endswith('.setprofile.graph.csv'):
                 timestamp_id, step_id = filename.split('.')[:2]
                 try:
-                    graph_df = pd.read_csv(StringIO(file))
+                    graph_df = pd.read_csv(StringIO(file), dtype='string')
                 except pd.errors.EmptyDataError:
                     continue
                 graph_df.insert(loc=0, column='timestamp_id', value=timestamp_id)
-                graph_df.insert(loc=0, column='step_id', value=step_id)
+                graph_df.insert(loc=1, column='step_id', value=step_id)
+                graph_df = graph_df.astype('string')
                 files['graph'].append(graph_df)
 
             elif filename.endswith('.setprofile.sandwich.csv'):
                 timestamp_id, step_id = filename.split('.')[:2]
                 try:
-                    sandwich_df = pd.read_csv(StringIO(file))
+                    sandwich_df = pd.read_csv(StringIO(file), dtype='string')
                 except pd.errors.EmptyDataError:
                     continue
                 sandwich_df.insert(loc=0, column='timestamp_id', value=timestamp_id)
-                sandwich_df.insert(loc=0, column='step_id', value=step_id)
+                sandwich_df.insert(loc=1, column='step_id', value=step_id)
+                sandwich_df = sandwich_df.astype('string')
+                sandwich_df["is_external"] = sandwich_df["is_external"].map({'True': True, 'False': False}).astype('bool')
                 files['sandwich'].append(sandwich_df)
 
             elif filename.endswith('.tcplife.txt'):
@@ -149,7 +152,6 @@ if __name__ == '__main__':
     parser = ArgumentParser(description='Parse a CIntent archive')
     parser.add_argument('archive_dir', type=os.path.abspath, help='path to a directory of CIMonitor archive(s)')
     args = parser.parse_args()
-    print('starting')
     
     # Find any archives in the archive directory
     pattern = os.path.join(args.archive_dir, '**', '*.zip')
