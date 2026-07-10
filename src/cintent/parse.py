@@ -1,8 +1,11 @@
 from argparse import ArgumentParser, Namespace
+import csv
+from csv import DictReader
 import glob
-from io import StringIO
+from io import StringIO, TextIOWrapper
 import os
 from pathlib import Path
+import sys
 from typing import Any
 from zipfile import ZipFile
 
@@ -19,132 +22,88 @@ def parse_archive(archive_path: str, out_paths: dict[str, str]) -> None:
     assert 'metadata' in out_paths
     assert 'sandwich' in out_paths
 
-    files = {
-        'execsnoop': [],
-        'graph': [],
-        'metadata': [],
-        'opensnoop': [],
-        'sandwich': [],
-    }
+    csv.field_size_limit(sys.maxsize)
     
-    # Parse Files
     with ZipFile(archive_path, 'r') as archive:
-        for filename in tqdm(archive.namelist(), desc=f'Parsing {archive_path}'):
-            # Skip the item if it is a directory
-            info = archive.getinfo(filename)
-            if info.is_dir():
-                continue
+        metadata_paths = sorted(name for name in archive.namelist() if name.endswith(".metadata.txt"))
+        metadata_dfs = []
+        for metadata_path in metadata_paths:
+            metadata_df = []
+            with archive.open(metadata_path, "r") as file:
+                wrapper = TextIOWrapper(file, encoding="utf-8", newline="")
+                metadata = {line.split(' = ', maxsplit=1)[0]: line.split(' = ', maxsplit=1)[1] for line in wrapper.read().splitlines()}
+                metadata_df.append(metadata)
+            metadata_df = DataFrame(metadata_df)
+            metadata_dfs.append(metadata_df)
+
+        sandwich_paths = sorted(name for name in archive.namelist() if name.endswith(".setprofile.sandwich.csv"))
+        graph_paths = sorted(name for name in archive.namelist() if name.endswith(".setprofile.graph.csv"))
+        sandwich_dfs, graph_dfs = [], []
+        for sandwich_path, graph_path in zip(sandwich_paths, graph_paths):
+            assert sandwich_path.split('.')[:2] == graph_path.split('.')[:2], "Sandwich/Graph Mismatch!"
+            timestamp_id, step_id = sandwich_path.split('.')[:2]
             
-            # Load the file
-            try:
-                file = archive.read(filename).decode()
-            except UnicodeDecodeError:
-                continue
-
-            # Parse the file
-            if filename.endswith('.execsnoop.txt'):
-                pass
-
-            elif filename.endswith('.gethostname.txt'):
-                pass
-
-            elif filename.endswith('.metadata.txt'):
-                metadata = {}
-                for line in file.splitlines():
-                    key, value = line.split(' = ', maxsplit=1)
-                    metadata[key] = value
-                files['metadata'].append(metadata)
-
-            elif filename.endswith('.opensnoop.txt'):
-                pass
+            is_external = {}
+            to_bool = {"True": True, "False": False}
+            with archive.open(sandwich_path, "r") as file:
+                wrapper = TextIOWrapper(file, encoding="utf-8", newline="")
+                reader = DictReader(wrapper)
+                for row in reader:
+                    if row["is_external"] not in to_bool:
+                        continue
+                    is_external[row["id"]] = to_bool[row["is_external"]]
             
-            elif filename.endswith('.setprofile.graph.csv'):
-                timestamp_id, step_id = filename.split('.')[:2]
-                try:
-                    graph_df = pd.read_csv(StringIO(file), dtype='string')
-                except pd.errors.EmptyDataError:
-                    continue
-                graph_df.insert(loc=0, column='timestamp_id', value=timestamp_id)
-                graph_df.insert(loc=1, column='step_id', value=step_id)
-                graph_df = graph_df.astype('string')
-                files['graph'].append(graph_df)
+            graph_df = []
+            with archive.open(graph_path, "r") as file:
+                wrapper = TextIOWrapper(file, encoding="utf-8", newline="")
+                reader = DictReader(wrapper)
+                for row in reader:
+                    if row["src_id"] == "src_id" or row["dst_id"] == "dst_id":
+                        continue
+                    if not is_external[row["src_id"]] or not is_external[row["dst_id"]]:
+                        graph_df.append(row)      
+            graph_df = DataFrame(graph_df, columns=["src_id", "dst_id", "count", "duration_ns"])
+            graph_df.insert(loc=0, column='timestamp_id', value=timestamp_id)
+            graph_df.insert(loc=1, column='step_id', value=step_id)
+            graph_dfs.append(graph_df)
+            
+            sandwich_df = []
+            if not graph_df.empty:
+                graph_ids = pd.concat([graph_df["src_id"], graph_df["dst_id"]]).unique()
+                with archive.open(sandwich_path, "r") as file:
+                    wrapper = TextIOWrapper(file, encoding="utf-8", newline="")
+                    reader = DictReader(wrapper)
+                    for row in reader:
+                        if row["id"] in graph_ids:
+                            sandwich_df.append(row)
+            sandwich_df = DataFrame(sandwich_df, columns=["id", "name", "path", "line", "count", "duration_ns", "is_external", "code"])
+            sandwich_df.insert(loc=0, column='timestamp_id', value=timestamp_id)
+            sandwich_df.insert(loc=1, column='step_id', value=step_id)
+            sandwich_dfs.append(sandwich_df)
+            
+            del is_external
+            del graph_df
+            del sandwich_df
 
-            elif filename.endswith('.setprofile.sandwich.csv'):
-                timestamp_id, step_id = filename.split('.')[:2]
-                try:
-                    sandwich_df = pd.read_csv(StringIO(file), dtype='string')
-                except pd.errors.EmptyDataError:
-                    continue
-                sandwich_df.insert(loc=0, column='timestamp_id', value=timestamp_id)
-                sandwich_df.insert(loc=1, column='step_id', value=step_id)
-                sandwich_df = sandwich_df.astype('string')
-                sandwich_df["is_external"] = sandwich_df["is_external"].map({'True': True, 'False': False}).astype('bool')
-                files['sandwich'].append(sandwich_df)
-
-            elif filename.endswith('.tcplife.txt'):
-                pass
-    
-    # Compile Parsed Files
-    if not files['metadata']:
-        print(f'WARNING: "{archive_path}" does not have metadata file(s) and will be skipped!')
-        return
-    
-    repo_id = files['metadata'][0]['repository']
-    job_id = files['metadata'][0]['job_id']
-    files['metadata'] = DataFrame(files['metadata'])
-
-    files['execsnoop'] = DataFrame()
-
-    if files['graph']:
-        files['graph'] = pd.concat([df for df in files['graph'] if not df.empty], ignore_index=True)
-        files['graph'].insert(loc=0, column='job_id', value=job_id)
-        files['graph'].insert(loc=0, column='repo_id', value=repo_id)
-        files['graph'] = files['graph'][files['graph']['src_id'] != 'src_id']
-    else:
-        files['graph'] = DataFrame()
-
-    files['opensnoop'] = DataFrame()
-    
-    if files['sandwich']:
-        files['sandwich'] = pd.concat([df for df in files['sandwich'] if not df.empty], ignore_index=True)
-        files['sandwich'].insert(loc=0, column='job_id', value=job_id)
-        files['sandwich'].insert(loc=0, column='repo_id', value=repo_id)
-        files['sandwich'] = files['sandwich'][files['sandwich']['id'] != 'id']
-    else:
-        files['sandwich'] = DataFrame()
-
-    # Filter and Dump Sandwich and Graph Files
     is_file_empty = lambda path: os.path.isfile(path) and os.path.getsize(path) == 0
 
-    if not files['graph'].empty and not files['sandwich'].empty:
-        id_to_external = {}
-        for row in files['sandwich'].itertuples():
-            key = (str(row.repo_id), str(row.job_id), str(row.step_id), str(row.timestamp_id), str(row.id))
-            id_to_external[key] = row.is_external
+    if metadata_dfs:
+        metadata_dfs = pd.concat(metadata_dfs, ignore_index=True)
+        repo_id = metadata_dfs['repository'].iloc[0]
+        job_id = metadata_dfs['job_id'].iloc[0]
+        metadata_dfs.to_csv(out_paths['metadata'], mode='a', index=False, header=is_file_empty(out_paths['metadata']))
         
-        def filter_graph(row):
-            src_key = (str(row.repo_id), str(row.job_id), str(row.step_id), str(row.timestamp_id), str(row.src_id)) 
-            return src_key in id_to_external and not id_to_external[src_key]
-        
-        files['graph'] = files['graph'][files['graph'].apply(filter_graph, axis=1)]
-
-        graph_ids = set()
-        for row in files['graph'].itertuples():
-            src_key = (str(row.repo_id), str(row.job_id), str(row.step_id), str(row.timestamp_id), str(row.src_id))
-            dst_key = (str(row.repo_id), str(row.job_id), str(row.step_id), str(row.timestamp_id), str(row.dst_id))
-            graph_ids.add(src_key)
-            graph_ids.add(dst_key)
-
-        def filter_sandwich(row):
-            key = (str(row.repo_id), str(row.job_id), str(row.step_id), str(row.timestamp_id), str(row.id)) 
-            return key in graph_ids
-
-        files['sandwich'] = files['sandwich'][files['sandwich'].apply(filter_sandwich, axis=1)]
-
-        files['graph'].to_csv(out_paths['graph'], mode='a', index=False, header=is_file_empty(out_paths['graph']))
-        files['sandwich'].to_csv(out_paths['sandwich'], mode='a', index=False, header=is_file_empty(out_paths['sandwich']))
+    if graph_dfs:
+        graph_dfs = pd.concat(graph_dfs, ignore_index=True)
+        graph_dfs.insert(loc=0, column='repo_id', value=repo_id)
+        graph_dfs.insert(loc=1, column='job_id', value=job_id)
+        graph_dfs.to_csv(out_paths['graph'], mode='a', index=False, header=is_file_empty(out_paths['graph']))
     
-    files['metadata'].to_csv(out_paths['metadata'], mode='a', index=False, header=is_file_empty(out_paths['metadata']))
+    if sandwich_dfs:
+        sandwich_dfs = pd.concat(sandwich_dfs, ignore_index=True)
+        sandwich_dfs.insert(loc=0, column='repo_id', value=repo_id)
+        sandwich_dfs.insert(loc=1, column='job_id', value=job_id)
+        sandwich_dfs.to_csv(out_paths['sandwich'], mode='a', index=False, header=is_file_empty(out_paths['sandwich']))
 
 
 if __name__ == '__main__':
@@ -172,5 +131,7 @@ if __name__ == '__main__':
         pass
 
     # Parse the archives
-    for archive_path in archive_paths:
+    progress_bar = tqdm(archive_paths)
+    for archive_path in progress_bar:
+        progress_bar.set_description(f'Parsing "{Path(archive_path).parent.stem}"')
         parse_archive(archive_path=archive_path, out_paths=out_paths)
