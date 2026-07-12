@@ -34,4 +34,6 @@ This will output the following files:
 
 ## Acknowledgement
 
+![University of Michigan-Dearborn Logo](./docs/umd_logo.png)
+
 `CIntent` was developed for research in the Software Evolution and Maintenance (SEM) Lab at the University of Michigan-Dearborn.
