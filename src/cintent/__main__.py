@@ -7,11 +7,11 @@ def parse_args() -> Namespace:
     parser = ArgumentParser(description='Summarize the intent of GitHub Actions workflows')
     subparsers = parser.add_subparsers(dest='command', required=True, help='Available commands')
 
-    workflow_parser = subparsers.add_parser('workflow', help='Manage and analyze GitHub Actions workflows')
-    workflow_subparsers = workflow_parser.add_subparsers(dest='workflow_command', required=True, help='Available workflow commands')
+    preprocess_parser = subparsers.add_parser('preprocess', help='Preprocess a CIMonitor Archive')
+    preprocess_parser.add_argument()
 
-    workflow_subparsers.add_parser('clone', help='Clone repositories from ')
-    workflow_parser.add_argument('workflow_dir', type=os.path.abspath, help='path to a directory containing GitHub Actions workflows')
+    analyze_parser = subparsers.add_parser('analyze', help='Analyze a Preprocessed CIMonitor Archive')
+    analyze_parser.add_argument()
 
     return parser.parse_args()
 
@@ -20,7 +20,11 @@ def main() -> None:
     args = parse_args()
 
     match args.command:
-        case 'workflow':
+        case 'preprocess':
+            pass
+        case 'analyze':
+            pass
+        case _:
             pass
 
 
